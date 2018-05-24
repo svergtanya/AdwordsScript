@@ -1,0 +1,144 @@
+function main() {
+  var currentSetting = new Object();
+  
+  // what do you want to check?
+  currentSetting.entityToCheck = "product groups"; // valid options: keywords, product groups
+  
+  // How much cost is allowed before we alert?
+  currentSetting.maxCost = 1;
+  
+  // Fewer than how many conversions before we alert?
+  currentSetting.MinConversions = 2;
+  
+  // who should get email alerts?
+  currentSetting.emailsToNotify = ["example@example.com"]; // comma separated list, e.g. "example@example.com", "example2@example.com"
+  
+  // what date range do you want to check?
+  currentSetting.dateRange = "TODAY"; // usually 'TODAY'
+  
+  // add links to help fix alerts by setting the following 3 values. 
+  // Load a page in your AdWords account and copy the numerical values for each of these these parameters
+  currentSetting.customerId = '__c from the url'; // grab the URL from a page in your AW account and look for the numbers behind __c=
+  currentSetting.effectiveUserId = '__u from the url'; // grab the URL from a page in your AW account and look for the numbers behind __u=
+  currentSetting.ocid = 'ocid from the url'; // grab the URL from a page in your AW account and look for the numbers behind ocid=
+  
+  // --- Advanced users can change the AWQL queries used to find alerts ---
+  var costToCheck = currentSetting.maxCost * 1000000;
+  switch(currentSetting.entityToCheck) {
+    case "keywords":
+      currentSetting.reportType = "KEYWORDS_PERFORMANCE_REPORT";
+      currentSetting.metricsColumns = ['Criteria',
+                                       'CampaignName',
+                                       'CampaignId',
+                                       'AdGroupName',
+                                       'AdGroupId',
+                                       'Impressions',
+                                       'Clicks',
+                                       'Cost',
+                                       'CostPerConversion'
+                                      ];
+      currentSetting.whereConditions = ['WHERE',
+                                        'Cost', '>=', costToCheck, 'AND',
+                                        'Conversions', '<', currentSetting.MinConversions ];
+       break;
+    case "product groups":
+      currentSetting.reportType = "PRODUCT_PARTITION_REPORT";
+      currentSetting.metricsColumns = ['ProductGroup',
+                                       'CampaignName',
+                                       'CampaignId',
+                                       'AdGroupName',
+                                       'AdGroupId',
+                                       'Impressions',
+                                       'Clicks',
+                                       'Cost',
+                                       'CostPerConversion'
+                                      ];
+      currentSetting.whereConditions = ['WHERE',
+                                        'PartitionType', '=', 'UNIT', 'AND',
+                                        'Cost', '>=', costToCheck, 'AND',       // cost is in micros so multiply the currency amount by 1,000,000, e.g. $1 -> 1000000
+                                        'Conversions', '<', currentSetting.MinConversions ];
+       break;
+  }
+  
+// --- Most people will not want to change the code after this ---
+	var columnsUsedArray = currentSetting.metricsColumns;
+	var columnsStr = currentSetting.metricsColumns.join(',');
+
+	if(currentSetting.whereConditions.length > 0) {
+	  var whereClause = currentSetting.whereConditions.join(" ");
+	} else {
+	  var whereClause = '';
+	}
+  
+  var reportText = "Alert for " + currentSetting.entityToCheck + " " + whereClause + "\n";
+  reportText += "During " + currentSetting.dateRange;
+  reportText += "\nResults:\n";
+
+
+	// Pull the report with the options defined
+	var query = 'SELECT ' + columnsStr + ' ' +
+	  'FROM  ' + currentSetting.reportType + ' ' +
+ 	   whereClause + ' ' +
+ 	     'DURING ' + currentSetting.dateRange;
+	//Logger.log("query: " + query);
+	var report = AdWordsApp.report(query);
+  
+  	var reportIterator = report.rows();
+  
+  
+  var numResults = 0;
+    while(reportIterator.hasNext()){	
+      var row = reportIterator.next();
+      numResults++;
+      reportText += numResults + ". ";
+      	
+      /*
+      for(var i = 0; i < columnsUsedArray.length; i++){
+        	var key = columnsUsedArray[i];
+        	var data = row[key];
+        	//Logger.log("data: " + data);
+        	//Logger.log(key + ": " + data);
+          
+          reportText += key + ": " + data + " | ";
+      	} 
+        */
+      switch(currentSetting.entityToCheck){
+        case 'keywords':
+          reportText += row['Criteria'] + "(campaign: " + row['CampaignName'] + ") (ad group: " + row['AdGroupName'] + ")"
+          var deepLink = "https://adwords.google.com/aw/keywords?campaignId=" 
+          + row['CampaignId'] 
+          + "&adGroupId=" 
+          + row['AdGroupId'] 
+          + "&channel=1" 
+          + "&ocid=" + currentSetting.ocid 
+          + "&__c=" + currentSetting.customerId 
+          + "&__u=" + currentSetting.effectiveUserId; 
+          break;
+        case 'product groups':
+          reportText += row['ProductGroup'] + " (campaign: " + row['CampaignName'] + ") (ad group: " + row['AdGroupName'] + ")"
+          var deepLink = "https://adwords.google.com/aw/productgroups?campaignId=" 
+          + row['CampaignId'] 
+          + "&adGroupId=" 
+          + row['AdGroupId'] 
+          + "&channel=3" 
+          + "&ocid=" + currentSetting.ocid 
+          + "&__c=" + currentSetting.customerId 
+          + "&__u=" + currentSetting.effectiveUserId; 
+          break;
+      }
+      reportText += "\n" + deepLink;
+      reportText += "\n";
+	}
+  Logger.log(numResults + " matches found\n");
+  Logger.log(reportText);
+  if(currentSetting.emailsToNotify) {
+    sendEmailNotification("", currentSetting.emailsToNotify, numResults + " AdWords Alerts", reportText);
+  }
+  
+  function sendEmailNotification(from, to, subject, body){
+    var remainingQuota = MailApp.getRemainingDailyQuota();
+    if(remainingQuota > to.length && to) {
+      MailApp.sendEmail(to, subject, body)
+    }
+  }
+}
